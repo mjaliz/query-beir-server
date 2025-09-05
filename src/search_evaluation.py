@@ -135,10 +135,23 @@ class SearchEvaluator:
                     doc_index = result.retrieved_docs.index(fp_doc_id)
                     score = result.scores[doc_index] if doc_index < len(result.scores) else 0.0
                     
+                    # Retrieve the document from Qdrant to get its title
+                    try:
+                        doc_points = self.qdrant_storage.client.retrieve(
+                            collection_name=self.collection_name,
+                            ids=[fp_doc_id]
+                        )
+                        false_positive_title = ""
+                        if doc_points:
+                            false_positive_title = doc_points[0].payload.get("title", "")
+                    except Exception as e:
+                        logger.warning(f"Could not retrieve title for doc {fp_doc_id}: {e}")
+                        false_positive_title = ""
+                    
                     record = {
                         "query_id": result.query_id,
                         "query_text": result.query_text,
-                        "false_positive_doc_id": fp_doc_id,
+                        "false_positive_title": false_positive_title,
                         "score": score,
                         "relevant_docs": result.relevant_docs,
                         "rank": doc_index + 1

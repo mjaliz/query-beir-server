@@ -10,6 +10,7 @@ from qdrant_client.models import (
     SearchRequest,
     ScoredPoint
 )
+from uuid import uuid4
 import logging
 from tqdm import tqdm
 
@@ -58,7 +59,7 @@ class QdrantStorage:
         
         for doc_embedding in tqdm(embedding_generator, desc=f"Indexing to {collection_name}"):
             point = PointStruct(
-                id=doc_embedding['id'],
+                id=str(uuid4()),
                 vector=doc_embedding['vector'],
                 payload=doc_embedding['payload']
             )
