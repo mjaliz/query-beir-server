@@ -15,6 +15,7 @@ class SearchResult:
     retrieved_docs: List[str]
     relevant_docs: List[str]
     scores: List[float]
+    payloads: List[Dict[str, Any]]
     false_positives: List[str]
     true_positives: List[str]
     false_negatives: List[str]
@@ -53,9 +54,10 @@ class SearchEvaluator:
                 top_k=top_k
             )
             
-            # Extract retrieved document IDs
-            retrieved_docs = [point.id for point in search_results]
+            # Extract corpus IDs from payloads (not the Qdrant UUID), scores, and payloads
+            retrieved_docs = [point.payload.get('corpus_id', point.id) for point in search_results]
             scores = [point.score for point in search_results]
+            payloads = [point.payload for point in search_results]
             
             # Get relevant documents for this query
             relevant_docs = list(self.qrels.get(query_id, set()))
@@ -66,7 +68,8 @@ class SearchEvaluator:
                 query_text=query_data['text'],
                 retrieved_docs=retrieved_docs,
                 relevant_docs=relevant_docs,
-                scores=scores
+                scores=scores,
+                payloads=payloads
             )
             
             results.append(result)
@@ -76,7 +79,7 @@ class SearchEvaluator:
 
     def _evaluate_single_query(self, query_id: str, query_text: str,
                               retrieved_docs: List[str], relevant_docs: List[str],
-                              scores: List[float]) -> SearchResult:
+                              scores: List[float], payloads: List[Dict[str, Any]]) -> SearchResult:
         retrieved_set = set(retrieved_docs)
         relevant_set = set(relevant_docs)
         
@@ -96,6 +99,7 @@ class SearchEvaluator:
             retrieved_docs=retrieved_docs,
             relevant_docs=relevant_docs,
             scores=scores,
+            payloads=payloads,
             false_positives=false_positives,
             true_positives=true_positives,
             false_negatives=false_negatives,
@@ -129,29 +133,22 @@ class SearchEvaluator:
         
         for result in self.results:
             if result.false_positives:
-                # Get details of false positive documents from Qdrant
+                # Get details of false positive documents from stored payloads
                 for fp_doc_id in result.false_positives:
-                    # Find the score for this document
+                    # Find the index and get score and payload for this document
                     doc_index = result.retrieved_docs.index(fp_doc_id)
                     score = result.scores[doc_index] if doc_index < len(result.scores) else 0.0
+                    payload = result.payloads[doc_index] if doc_index < len(result.payloads) else {}
                     
-                    # Retrieve the document from Qdrant to get its title
-                    try:
-                        doc_points = self.qdrant_storage.client.retrieve(
-                            collection_name=self.collection_name,
-                            ids=[fp_doc_id]
-                        )
-                        false_positive_title = ""
-                        if doc_points:
-                            false_positive_title = doc_points[0].payload.get("title", "")
-                    except Exception as e:
-                        logger.warning(f"Could not retrieve title for doc {fp_doc_id}: {e}")
-                        false_positive_title = ""
+                    # Extract title and corpus_id from payload
+                    false_positive_title = payload.get("title", "")
+                    corpus_id = payload.get("corpus_id", fp_doc_id)
                     
                     record = {
                         "query_id": result.query_id,
                         "query_text": result.query_text,
                         "false_positive_title": false_positive_title,
+                        "corpus_id": corpus_id,
                         "score": score,
                         "relevant_docs": result.relevant_docs,
                         "rank": doc_index + 1

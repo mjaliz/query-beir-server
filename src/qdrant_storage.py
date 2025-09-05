@@ -88,7 +88,8 @@ class QdrantStorage:
         search_params = {
             "collection_name": collection_name,
             "query_vector": query_vector,
-            "limit": top_k
+            "limit": top_k,
+            "with_payload": True
         }
         
         if score_threshold is not None:
