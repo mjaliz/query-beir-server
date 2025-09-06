@@ -42,7 +42,7 @@ class DataConfig(BaseSettings):
 
 class SearchConfig(BaseSettings):
     top_k: int = Field(default=10, env="SEARCH_TOP_K")
-    score_threshold: float = Field(default=0.0, env="SEARCH_SCORE_THRESHOLD")
+    score_threshold: float = Field(default=0.5, env="SEARCH_SCORE_THRESHOLD")
 
     class Config:
         env_prefix = "SEARCH_"

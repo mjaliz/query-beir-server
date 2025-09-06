@@ -25,7 +25,7 @@ class EmbeddingService:
             for line in f:
                 yield json.loads(line.strip())
 
-    def load_qrels(self, qrels_path: str) -> Dict[str, List[str]]:
+    def load_qrels(self, qrels_path: str) -> Dict[str, Dict[str, List[str]]]:
         corpus_to_queries = {}
         with open(qrels_path, "r", encoding="utf-8") as f:
             next(f)  # Skip header
@@ -33,11 +33,15 @@ class EmbeddingService:
                 parts = line.strip().split("\t")
                 if len(parts) >= 3:
                     query_id, doc_id, score = parts[0], parts[1], float(parts[2])
-                    if score > 0:  # Only store relevant pairs
-                        if doc_id not in corpus_to_queries:
-                            corpus_to_queries[doc_id] = []
-                        corpus_to_queries[doc_id].append(query_id)
-        logger.info(f"Loaded {len(corpus_to_queries)} corpus-query relevance pairs")
+                    if doc_id not in corpus_to_queries:
+                        corpus_to_queries[doc_id] = {"relevant": [], "non_relevant": []}
+                    
+                    if score > 0:
+                        corpus_to_queries[doc_id]["relevant"].append(query_id)
+                    else:
+                        corpus_to_queries[doc_id]["non_relevant"].append(query_id)
+        
+        logger.info(f"Loaded qrels for {len(corpus_to_queries)} documents")
         return corpus_to_queries
 
     def embed_corpus_batch(
@@ -79,11 +83,17 @@ class EmbeddingService:
 
                 for doc, embedding in zip(batch, embeddings):
                     corpus_id = doc["_id"]
-                    relevant_query_ids = corpus_to_queries.get(corpus_id, [])
+                    queries_info = corpus_to_queries.get(corpus_id, {"relevant": [], "non_relevant": []})
+                    
                     relevant_queries_with_text = [
                         {"query_id": qid, "query_text": query_texts.get(qid, "")}
-                        for qid in relevant_query_ids
-                    ] if query_texts else [{"query_id": qid, "query_text": ""} for qid in relevant_query_ids]
+                        for qid in queries_info.get("relevant", [])
+                    ] if query_texts else [{"query_id": qid, "query_text": ""} for qid in queries_info.get("relevant", [])]
+                    
+                    non_relevant_queries_with_text = [
+                        {"query_id": qid, "query_text": query_texts.get(qid, "")}
+                        for qid in queries_info.get("non_relevant", [])
+                    ] if query_texts else [{"query_id": qid, "query_text": ""} for qid in queries_info.get("non_relevant", [])]
                     
                     yield {
                         "id": corpus_id,
@@ -93,6 +103,7 @@ class EmbeddingService:
                             "title": doc.get("title", ""),
                             "text": doc.get("text", ""),
                             "relevant_queries": relevant_queries_with_text,
+                            "non_relevant_queries": non_relevant_queries_with_text,
                         },
                     }
                     total_processed += 1
@@ -104,11 +115,17 @@ class EmbeddingService:
             embeddings = self.embed_corpus_batch(batch)
             for doc, embedding in zip(batch, embeddings):
                 corpus_id = doc["_id"]
-                relevant_query_ids = corpus_to_queries.get(corpus_id, [])
+                queries_info = corpus_to_queries.get(corpus_id, {"relevant": [], "non_relevant": []})
+                
                 relevant_queries_with_text = [
                     {"query_id": qid, "query_text": query_texts.get(qid, "")}
-                    for qid in relevant_query_ids
-                ] if query_texts else [{"query_id": qid, "query_text": ""} for qid in relevant_query_ids]
+                    for qid in queries_info.get("relevant", [])
+                ] if query_texts else [{"query_id": qid, "query_text": ""} for qid in queries_info.get("relevant", [])]
+                
+                non_relevant_queries_with_text = [
+                    {"query_id": qid, "query_text": query_texts.get(qid, "")}
+                    for qid in queries_info.get("non_relevant", [])
+                ] if query_texts else [{"query_id": qid, "query_text": ""} for qid in queries_info.get("non_relevant", [])]
                 
                 yield {
                     "id": corpus_id,
@@ -118,6 +135,7 @@ class EmbeddingService:
                         "title": doc.get("title", ""),
                         "text": doc.get("text", ""),
                         "relevant_queries": relevant_queries_with_text,
+                        "non_relevant_queries": non_relevant_queries_with_text,
                     },
                 }
                 total_processed += 1
