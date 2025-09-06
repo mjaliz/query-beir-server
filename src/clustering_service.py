@@ -22,7 +22,12 @@ class ClusteringService:
         Args:
             min_cluster_size: Minimum size of clusters (increase for larger clusters)
             min_samples: Minimum samples in neighborhood (None = min_cluster_size)
-            metric: Distance metric ('euclidean', 'cosine', 'manhattan')
+            metric: Distance metric:
+                - 'cosine': Cosine similarity (recommended for text, uses normalized euclidean)
+                - 'euclidean': Euclidean distance
+                - 'manhattan': Manhattan/L1 distance
+                - 'l1', 'l2': L1 or L2 norm
+                - 'precomputed': Use precomputed distance matrix
             cluster_selection_epsilon: Cut distance for extracting flat clusters
             cluster_selection_method: 'eom' (default) or 'leaf' (smaller, tighter clusters)
             alpha: Conservative parameter for 'eom' (>1.0 = more conservative/smaller)
@@ -33,7 +38,7 @@ class ClusteringService:
         - Use 'leaf' cluster_selection_method
         - Increase alpha (1.5-2.0) for 'eom' method
         - Use smaller min_samples (1-3)
-        - Use 'cosine' metric for text embeddings
+        - Use 'cosine' metric for text embeddings (automatically normalized)
         """
         self.min_cluster_size = min_cluster_size
         self.min_samples = min_samples if min_samples is not None else min_cluster_size
@@ -82,15 +87,27 @@ class ClusteringService:
         
         logger.info(f"Starting HDBSCAN clustering on {len(query_ids)} queries...")
         
+        # Handle cosine similarity by normalizing embeddings
+        metric_to_use = self.metric
+        if self.metric == 'cosine':
+            # Normalize embeddings for cosine similarity (becomes euclidean on unit sphere)
+            from sklearn.preprocessing import normalize
+            embedding_matrix = normalize(embedding_matrix, norm='l2', axis=1)
+            metric_to_use = 'euclidean'
+            logger.info("Using normalized embeddings with euclidean metric for cosine similarity")
+        elif self.metric == 'precomputed':
+            # If precomputed, embedding_matrix should be a distance matrix
+            metric_to_use = 'precomputed'
+        
         # Initialize and fit HDBSCAN
         self.clusterer = hdbscan.HDBSCAN(
             min_cluster_size=self.min_cluster_size,
             min_samples=self.min_samples,
-            metric=self.metric,
+            metric=metric_to_use,
             cluster_selection_epsilon=self.cluster_selection_epsilon,
             cluster_selection_method=self.cluster_selection_method,
             alpha=self.alpha,
-            algorithm=self.algorithm,
+            algorithm=self.algorithm if metric_to_use != 'precomputed' else 'best',
             prediction_data=prediction_data
         )
         

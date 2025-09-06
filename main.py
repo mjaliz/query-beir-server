@@ -180,8 +180,9 @@ def main():
     parser.add_argument('--min-samples', type=int, default=None, help='Min samples in neighborhood (1-3 for tighter clusters)')
     parser.add_argument('--cluster-method', type=str, default='eom', choices=['eom', 'leaf'], 
                        help='Cluster selection method: eom (default) or leaf (smaller clusters)')
-    parser.add_argument('--cluster-metric', type=str, default='cosine', choices=['euclidean', 'cosine', 'manhattan'],
-                       help='Distance metric for clustering (cosine recommended for text)')
+    parser.add_argument('--cluster-metric', type=str, default='cosine', 
+                       choices=['euclidean', 'cosine', 'manhattan', 'l1', 'l2'],
+                       help='Distance metric for clustering (cosine recommended for text embeddings)')
     parser.add_argument('--cluster-alpha', type=float, default=1.0, 
                        help='Alpha parameter for eom method (1.5-2.0 for smaller clusters)')
     parser.add_argument('--cluster-epsilon', type=float, default=0.0,
