@@ -106,7 +106,7 @@ class QdrantStorage:
 
     def index_corpus(self, collection_name: str, embedding_generator):
         points = []
-        batch_size = 100
+        batch_size = 300
         total_indexed = 0
         
         for doc_embedding in tqdm(embedding_generator, desc=f"Indexing to {collection_name}"):

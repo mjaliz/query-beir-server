@@ -50,7 +50,8 @@ def embed_and_index(model_name: str, qdrant_storage: QdrantStorage,
 
 def search_and_evaluate(model_name: str, collection_name: str, 
                         embedding_service: EmbeddingService,
-                        qdrant_storage: QdrantStorage):
+                        qdrant_storage: QdrantStorage,
+                        queries: dict = None):
     """Search queries and evaluate results"""
     logger.info(f"Starting search and evaluation for collection: {collection_name}")
     
@@ -60,8 +61,9 @@ def search_and_evaluate(model_name: str, collection_name: str,
     # Load relevance judgments
     evaluator.load_qrels(config.data.qrels_path)
     
-    # Embed queries
-    queries = embedding_service.embed_queries(config.data.query_path)
+    # Embed queries if not provided
+    if queries is None:
+        queries = embedding_service.embed_queries(config.data.query_path)
     
     # Search and evaluate
     results = evaluator.search_queries(queries, top_k=config.search.top_k)
@@ -73,9 +75,26 @@ def search_and_evaluate(model_name: str, collection_name: str,
     # Print summary
     evaluator.print_summary()
     
-    return evaluator.calculate_aggregate_metrics(), queries
+    return evaluator.calculate_aggregate_metrics()
 
-def cluster_queries(queries: Dict, model_name: str, min_cluster_size: int = 5):
+def get_query_embeddings(model_name: str) -> dict:
+    """Get query embeddings for clustering or other purposes"""
+    logger.info(f"Loading query embeddings with model: {model_name}")
+    
+    # Initialize embedding service
+    embedding_service = EmbeddingService(
+        model_name=model_name,
+        device=config.embedding.device,
+        batch_size=config.embedding.batch_size
+    )
+    
+    # Embed queries
+    queries = embedding_service.embed_queries(config.data.query_path)
+    logger.info(f"Embedded {len(queries)} queries")
+    
+    return queries
+
+def cluster_queries(queries: dict, model_name: str, min_cluster_size: int = 5):
     """Cluster queries using HDBSCAN to find similar queries"""
     logger.info(f"Starting query clustering for {len(queries)} queries")
     
@@ -123,7 +142,13 @@ def cluster_queries(queries: Dict, model_name: str, min_cluster_size: int = 5):
         sorted_coherence = sorted(coherence_scores.items(), key=lambda x: x[1], reverse=True)[:5]
         print("\nTop 5 Most Coherent Clusters:")
         for cluster_id, score in sorted_coherence:
-            n_queries = len(clustering_results['clusters'][str(cluster_id)])
+            # Try both integer and string keys for compatibility
+            if cluster_id in clustering_results['clusters']:
+                n_queries = len(clustering_results['clusters'][cluster_id])
+            elif str(cluster_id) in clustering_results['clusters']:
+                n_queries = len(clustering_results['clusters'][str(cluster_id)])
+            else:
+                n_queries = 0
             print(f"  Cluster {cluster_id}: {score:.4f} coherence ({n_queries} queries)")
     
     print("="*50)
@@ -135,8 +160,9 @@ def main():
     parser.add_argument('--models', nargs='+', help='List of embedding models to use')
     parser.add_argument('--embed-only', action='store_true', help='Only embed and index, skip search')
     parser.add_argument('--search-only', action='store_true', help='Only search, skip embedding')
+    parser.add_argument('--cluster-only', action='store_true', help='Only perform query clustering')
     parser.add_argument('--collection', type=str, help='Collection name for search-only mode')
-    parser.add_argument('--cluster-queries', action='store_true', help='Perform query clustering')
+    parser.add_argument('--cluster-queries', action='store_true', help='Perform query clustering after search')
     parser.add_argument('--min-cluster-size', type=int, default=5, help='Minimum cluster size for HDBSCAN')
     
     args = parser.parse_args()
@@ -160,6 +186,19 @@ def main():
             logger.info(f"Processing model: {model_name}")
             logger.info(f"{'='*50}")
             
+            # Handle cluster-only mode
+            if args.cluster_only:
+                queries = get_query_embeddings(model_name)
+                cluster_results = cluster_queries(
+                    queries=queries,
+                    model_name=model_name,
+                    min_cluster_size=args.min_cluster_size
+                )
+                continue
+            
+            # Handle embed and search modes
+            queries = None  # Will be loaded when needed
+            
             if not args.search_only:
                 # Embed and index
                 collection_name, embedding_service = embed_and_index(
@@ -179,12 +218,17 @@ def main():
                 )
             
             if not args.embed_only:
+                # Get query embeddings first if clustering is requested
+                if args.cluster_queries:
+                    queries = get_query_embeddings(model_name)
+                
                 # Search and evaluate
-                metrics, queries = search_and_evaluate(
+                metrics = search_and_evaluate(
                     model_name=model_name,
                     collection_name=collection_name,
                     embedding_service=embedding_service,
-                    qdrant_storage=qdrant_storage
+                    qdrant_storage=qdrant_storage,
+                    queries=queries
                 )
                 all_metrics[model_name] = metrics
                 
