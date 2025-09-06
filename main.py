@@ -8,6 +8,7 @@ from src.config import config
 from src.embeddings import EmbeddingService
 from src.qdrant_storage import QdrantStorage
 from src.search_evaluation import SearchEvaluator
+from src.clustering_service import ClusteringService
 
 # Configure logging
 logging.basicConfig(
@@ -72,7 +73,62 @@ def search_and_evaluate(model_name: str, collection_name: str,
     # Print summary
     evaluator.print_summary()
     
-    return evaluator.calculate_aggregate_metrics()
+    return evaluator.calculate_aggregate_metrics(), queries
+
+def cluster_queries(queries: Dict, model_name: str, min_cluster_size: int = 5):
+    """Cluster queries using HDBSCAN to find similar queries"""
+    logger.info(f"Starting query clustering for {len(queries)} queries")
+    
+    # Initialize clustering service
+    clustering_service = ClusteringService(
+        min_cluster_size=min_cluster_size,
+        min_samples=3,
+        metric='euclidean',
+        cluster_selection_epsilon=0.0
+    )
+    
+    # Load query embeddings
+    clustering_service.load_query_embeddings(queries)
+    
+    # Perform clustering
+    clustering_results = clustering_service.cluster_queries(prediction_data=True)
+    
+    # Analyze cluster coherence
+    coherence_scores = clustering_service.analyze_cluster_coherence()
+    clustering_results['cluster_coherence'] = coherence_scores
+    
+    # Get outlier scores
+    outlier_scores = clustering_service.get_outlier_scores()
+    clustering_results['outlier_scores'] = outlier_scores
+    
+    # Save results
+    output_path = f"data/query_clusters.{model_name.replace('/', '_')}.json"
+    clustering_service.save_clustering_results(output_path, include_embeddings=False)
+    
+    # Print summary
+    print("\n" + "="*50)
+    print("QUERY CLUSTERING SUMMARY")
+    print("="*50)
+    print(f"Model: {model_name}")
+    print(f"Total Queries: {clustering_results['total_queries']}")
+    print(f"Number of Clusters: {clustering_results['n_clusters']}")
+    print(f"Noise Points: {clustering_results['n_noise_points']}")
+    print(f"Average Cluster Size: {clustering_results['avg_cluster_size']:.2f}")
+    print(f"Max Cluster Size: {clustering_results['max_cluster_size']}")
+    print(f"Min Cluster Size: {clustering_results['min_cluster_size']}")
+    print("-"*50)
+    
+    # Print top coherent clusters
+    if coherence_scores:
+        sorted_coherence = sorted(coherence_scores.items(), key=lambda x: x[1], reverse=True)[:5]
+        print("\nTop 5 Most Coherent Clusters:")
+        for cluster_id, score in sorted_coherence:
+            n_queries = len(clustering_results['clusters'][str(cluster_id)])
+            print(f"  Cluster {cluster_id}: {score:.4f} coherence ({n_queries} queries)")
+    
+    print("="*50)
+    
+    return clustering_results
 
 def main():
     parser = argparse.ArgumentParser(description='BEIR Corpus Embedding and Search Evaluation')
@@ -80,6 +136,8 @@ def main():
     parser.add_argument('--embed-only', action='store_true', help='Only embed and index, skip search')
     parser.add_argument('--search-only', action='store_true', help='Only search, skip embedding')
     parser.add_argument('--collection', type=str, help='Collection name for search-only mode')
+    parser.add_argument('--cluster-queries', action='store_true', help='Perform query clustering')
+    parser.add_argument('--min-cluster-size', type=int, default=5, help='Minimum cluster size for HDBSCAN')
     
     args = parser.parse_args()
     
@@ -122,13 +180,21 @@ def main():
             
             if not args.embed_only:
                 # Search and evaluate
-                metrics = search_and_evaluate(
+                metrics, queries = search_and_evaluate(
                     model_name=model_name,
                     collection_name=collection_name,
                     embedding_service=embedding_service,
                     qdrant_storage=qdrant_storage
                 )
                 all_metrics[model_name] = metrics
+                
+                # Perform query clustering if requested
+                if args.cluster_queries:
+                    cluster_results = cluster_queries(
+                        queries=queries,
+                        model_name=model_name,
+                        min_cluster_size=args.min_cluster_size
+                    )
             
         except Exception as e:
             logger.error(f"Error processing model {model_name}: {e}")

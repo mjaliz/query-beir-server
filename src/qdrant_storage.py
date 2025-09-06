@@ -13,19 +13,71 @@ from qdrant_client.models import (
 from uuid import uuid4
 import logging
 from tqdm import tqdm
+import time
+from qdrant_client.http.exceptions import ResponseHandlingException
+import socket
 
 logger = logging.getLogger(__name__)
 
 class QdrantStorage:
     def __init__(self, host: str = "localhost", port: int = 6333, 
-                 api_key: Optional[str] = None, https: bool = False):
-        self.client = QdrantClient(
-            host=host,
-            port=port,
-            api_key=api_key,
-            https=https
-        )
-        logger.info(f"Connected to Qdrant at {host}:{port}")
+                 api_key: Optional[str] = None, https: bool = False, 
+                 max_retries: int = 3, retry_delay: int = 5):
+        self.host = host
+        self.port = port
+        self.api_key = api_key
+        self.https = https
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+        self.client = None
+        
+        self._connect_with_retry()
+    
+    def _connect_with_retry(self):
+        """Connect to Qdrant with retry logic"""
+        for attempt in range(self.max_retries):
+            try:
+                logger.info(f"Attempting to connect to Qdrant at {self.host}:{self.port} (attempt {attempt + 1}/{self.max_retries})")
+                
+                self.client = QdrantClient(
+                    host=self.host,
+                    port=self.port,
+                    api_key=self.api_key,
+                    https=self.https,
+                    timeout=10  # 10 second timeout for connection
+                )
+                
+                # Test the connection by getting collections
+                _ = self.client.get_collections()
+                logger.info(f"Successfully connected to Qdrant at {self.host}:{self.port}")
+                return
+                
+            except (socket.error, socket.gaierror, ResponseHandlingException, Exception) as e:
+                if attempt < self.max_retries - 1:
+                    logger.warning(f"Failed to connect to Qdrant (attempt {attempt + 1}/{self.max_retries}): {e}")
+                    logger.info(f"Retrying in {self.retry_delay} seconds...")
+                    time.sleep(self.retry_delay)
+                else:
+                    logger.error(f"Failed to connect to Qdrant after {self.max_retries} attempts")
+                    logger.error(f"Please ensure Qdrant is running at {self.host}:{self.port}")
+                    logger.error("You can start Qdrant with: docker run -p 6333:6333 qdrant/qdrant")
+                    raise ConnectionError(f"Cannot connect to Qdrant at {self.host}:{self.port}: {e}")
+    
+    def _execute_with_retry(self, func, *args, **kwargs):
+        """Execute a function with retry logic"""
+        for attempt in range(self.max_retries):
+            try:
+                return func(*args, **kwargs)
+            except (socket.error, socket.gaierror, ResponseHandlingException) as e:
+                if attempt < self.max_retries - 1:
+                    logger.warning(f"Operation failed (attempt {attempt + 1}/{self.max_retries}): {e}")
+                    logger.info(f"Retrying in {self.retry_delay} seconds...")
+                    time.sleep(self.retry_delay)
+                    # Try to reconnect
+                    self._connect_with_retry()
+                else:
+                    logger.error(f"Operation failed after {self.max_retries} attempts: {e}")
+                    raise
 
     def create_collection(self, collection_name: str, vector_size: int):
         try:
@@ -66,7 +118,8 @@ class QdrantStorage:
             points.append(point)
             
             if len(points) >= batch_size:
-                self.client.upsert(
+                self._execute_with_retry(
+                    self.client.upsert,
                     collection_name=collection_name,
                     points=points
                 )
@@ -75,7 +128,8 @@ class QdrantStorage:
         
         # Index remaining points
         if points:
-            self.client.upsert(
+            self._execute_with_retry(
+                self.client.upsert,
                 collection_name=collection_name,
                 points=points
             )
@@ -95,7 +149,7 @@ class QdrantStorage:
         if score_threshold is not None:
             search_params["score_threshold"] = score_threshold
         
-        results = self.client.search(**search_params)
+        results = self._execute_with_retry(self.client.search, **search_params)
         return results
 
     def search_with_filter(self, collection_name: str, query_vector: List[float],
