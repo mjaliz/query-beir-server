@@ -38,7 +38,7 @@ def embed_and_index(model_name: str, qdrant_storage: QdrantStorage,
     )
     
     # Embed and index corpus
-    embedding_generator = embedding_service.embed_corpus(corpus_path, qrels_path)
+    embedding_generator = embedding_service.embed_corpus(corpus_path, qrels_path, query_path)
     qdrant_storage.index_corpus(collection_name, embedding_generator)
     
     # Get collection info

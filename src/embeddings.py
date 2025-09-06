@@ -55,10 +55,18 @@ class EmbeddingService:
         return embeddings.tolist()
 
     def embed_corpus(
-        self, corpus_path: str, qrels_path: str
+        self, corpus_path: str, qrels_path: str, query_path: str = None
     ) -> Generator[Dict[str, Any], None, None]:
         corpus_to_queries = self.load_qrels(qrels_path)
         corpus_generator = self.load_corpus(corpus_path)
+        
+        # Load queries to get query texts if path provided
+        query_texts = {}
+        if query_path:
+            with open(query_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    query = json.loads(line.strip())
+                    query_texts[query["_id"]] = query["text"]
 
         batch = []
         total_processed = 0
@@ -69,8 +77,14 @@ class EmbeddingService:
             if len(batch) >= self.batch_size:
                 embeddings = self.embed_corpus_batch(batch)
 
-                for i, (doc, embedding) in enumerate(zip(batch, embeddings)):
+                for doc, embedding in zip(batch, embeddings):
                     corpus_id = doc["_id"]
+                    relevant_query_ids = corpus_to_queries.get(corpus_id, [])
+                    relevant_queries_with_text = [
+                        {"query_id": qid, "query_text": query_texts.get(qid, "")}
+                        for qid in relevant_query_ids
+                    ] if query_texts else [{"query_id": qid, "query_text": ""} for qid in relevant_query_ids]
+                    
                     yield {
                         "id": corpus_id,
                         "vector": embedding,
@@ -78,7 +92,7 @@ class EmbeddingService:
                             "corpus_id": corpus_id,
                             "title": doc.get("title", ""),
                             "text": doc.get("text", ""),
-                            "relevant_queries": corpus_to_queries.get(corpus_id, []),
+                            "relevant_queries": relevant_queries_with_text,
                         },
                     }
                     total_processed += 1
@@ -90,6 +104,12 @@ class EmbeddingService:
             embeddings = self.embed_corpus_batch(batch)
             for doc, embedding in zip(batch, embeddings):
                 corpus_id = doc["_id"]
+                relevant_query_ids = corpus_to_queries.get(corpus_id, [])
+                relevant_queries_with_text = [
+                    {"query_id": qid, "query_text": query_texts.get(qid, "")}
+                    for qid in relevant_query_ids
+                ] if query_texts else [{"query_id": qid, "query_text": ""} for qid in relevant_query_ids]
+                
                 yield {
                     "id": corpus_id,
                     "vector": embedding,
@@ -97,7 +117,7 @@ class EmbeddingService:
                         "corpus_id": corpus_id,
                         "title": doc.get("title", ""),
                         "text": doc.get("text", ""),
-                        "relevant_queries": corpus_to_queries.get(corpus_id, []),
+                        "relevant_queries": relevant_queries_with_text,
                     },
                 }
                 total_processed += 1
