@@ -12,21 +12,36 @@ logger = logging.getLogger(__name__)
 
 
 class ClusteringService:
-    def __init__(self, min_cluster_size: int = 5, min_samples: int = 3,
-                 metric: str = 'euclidean', cluster_selection_epsilon: float = 0.0):
+    def __init__(self, min_cluster_size: int = 5, min_samples: int = None,
+                 metric: str = 'euclidean', cluster_selection_epsilon: float = 0.0,
+                 cluster_selection_method: str = 'eom', alpha: float = 1.0,
+                 algorithm: str = 'best'):
         """
         Initialize HDBSCAN clustering service for query similarity analysis.
         
         Args:
-            min_cluster_size: Minimum size of clusters
-            min_samples: Minimum number of samples in neighborhood for core points
-            metric: Distance metric for clustering
-            cluster_selection_epsilon: Epsilon for cluster selection (0 means no epsilon)
+            min_cluster_size: Minimum size of clusters (increase for larger clusters)
+            min_samples: Minimum samples in neighborhood (None = min_cluster_size)
+            metric: Distance metric ('euclidean', 'cosine', 'manhattan')
+            cluster_selection_epsilon: Cut distance for extracting flat clusters
+            cluster_selection_method: 'eom' (default) or 'leaf' (smaller, tighter clusters)
+            alpha: Conservative parameter for 'eom' (>1.0 = more conservative/smaller)
+            algorithm: Algorithm to use ('best', 'prims_kdtree', 'prims_balltree', 'boruvka_kdtree')
+        
+        For smaller, more accurate clusters:
+        - Use smaller min_cluster_size (3-10)
+        - Use 'leaf' cluster_selection_method
+        - Increase alpha (1.5-2.0) for 'eom' method
+        - Use smaller min_samples (1-3)
+        - Use 'cosine' metric for text embeddings
         """
         self.min_cluster_size = min_cluster_size
-        self.min_samples = min_samples
+        self.min_samples = min_samples if min_samples is not None else min_cluster_size
         self.metric = metric
         self.cluster_selection_epsilon = cluster_selection_epsilon
+        self.cluster_selection_method = cluster_selection_method
+        self.alpha = alpha
+        self.algorithm = algorithm
         self.clusterer = None
         self.query_embeddings = {}
         self.query_texts = {}
@@ -73,6 +88,9 @@ class ClusteringService:
             min_samples=self.min_samples,
             metric=self.metric,
             cluster_selection_epsilon=self.cluster_selection_epsilon,
+            cluster_selection_method=self.cluster_selection_method,
+            alpha=self.alpha,
+            algorithm=self.algorithm,
             prediction_data=prediction_data
         )
         

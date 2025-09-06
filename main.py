@@ -94,16 +94,29 @@ def get_query_embeddings(model_name: str) -> dict:
     
     return queries
 
-def cluster_queries(queries: dict, model_name: str, min_cluster_size: int = 5):
+def cluster_queries(queries: dict, model_name: str, **kwargs):
     """Cluster queries using HDBSCAN to find similar queries"""
     logger.info(f"Starting query clustering for {len(queries)} queries")
+    
+    # Extract clustering parameters with defaults
+    min_cluster_size = kwargs.get('min_cluster_size', 5)
+    min_samples = kwargs.get('min_samples', None)
+    metric = kwargs.get('metric', 'cosine')
+    cluster_method = kwargs.get('cluster_method', 'eom')
+    alpha = kwargs.get('alpha', 1.0)
+    epsilon = kwargs.get('epsilon', 0.0)
+    
+    logger.info(f"Clustering params: min_cluster_size={min_cluster_size}, min_samples={min_samples}, "
+                f"metric={metric}, method={cluster_method}, alpha={alpha}, epsilon={epsilon}")
     
     # Initialize clustering service
     clustering_service = ClusteringService(
         min_cluster_size=min_cluster_size,
-        min_samples=3,
-        metric='euclidean',
-        cluster_selection_epsilon=0.0
+        min_samples=min_samples,
+        metric=metric,
+        cluster_selection_epsilon=epsilon,
+        cluster_selection_method=cluster_method,
+        alpha=alpha
     )
     
     # Load query embeddings
@@ -163,7 +176,16 @@ def main():
     parser.add_argument('--cluster-only', action='store_true', help='Only perform query clustering')
     parser.add_argument('--collection', type=str, help='Collection name for search-only mode')
     parser.add_argument('--cluster-queries', action='store_true', help='Perform query clustering after search')
-    parser.add_argument('--min-cluster-size', type=int, default=5, help='Minimum cluster size for HDBSCAN')
+    parser.add_argument('--min-cluster-size', type=int, default=5, help='Minimum cluster size (3-10 for smaller clusters)')
+    parser.add_argument('--min-samples', type=int, default=None, help='Min samples in neighborhood (1-3 for tighter clusters)')
+    parser.add_argument('--cluster-method', type=str, default='eom', choices=['eom', 'leaf'], 
+                       help='Cluster selection method: eom (default) or leaf (smaller clusters)')
+    parser.add_argument('--cluster-metric', type=str, default='cosine', choices=['euclidean', 'cosine', 'manhattan'],
+                       help='Distance metric for clustering (cosine recommended for text)')
+    parser.add_argument('--cluster-alpha', type=float, default=1.0, 
+                       help='Alpha parameter for eom method (1.5-2.0 for smaller clusters)')
+    parser.add_argument('--cluster-epsilon', type=float, default=0.0,
+                       help='Epsilon for flat clustering (0.1-0.5 for tighter clusters)')
     
     args = parser.parse_args()
     
@@ -192,7 +214,12 @@ def main():
                 cluster_results = cluster_queries(
                     queries=queries,
                     model_name=model_name,
-                    min_cluster_size=args.min_cluster_size
+                    min_cluster_size=args.min_cluster_size,
+                    min_samples=args.min_samples,
+                    metric=args.cluster_metric,
+                    cluster_method=args.cluster_method,
+                    alpha=args.cluster_alpha,
+                    epsilon=args.cluster_epsilon
                 )
                 continue
             
@@ -237,7 +264,12 @@ def main():
                     cluster_results = cluster_queries(
                         queries=queries,
                         model_name=model_name,
-                        min_cluster_size=args.min_cluster_size
+                        min_cluster_size=args.min_cluster_size,
+                        min_samples=args.min_samples,
+                        metric=args.cluster_metric,
+                        cluster_method=args.cluster_method,
+                        alpha=args.cluster_alpha,
+                        epsilon=args.cluster_epsilon
                     )
             
         except Exception as e:
