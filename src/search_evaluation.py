@@ -178,9 +178,9 @@ class SearchEvaluator:
                         "corpus_id": corpus_id,
                         "fp_relevant_query_ids": fp_relevant_query_ids,
                         "fp_relevant_query_texts": fp_relevant_query_texts,
+                        "fp_non_relevant_query_ids": fp_non_relevant_query_ids,
+                        "fp_non_relevant_query_texts": fp_non_relevant_query_texts,
                         "score": score,
-                        "relevant_docs": result.relevant_docs,
-                        "rank": doc_index + 1
                     }
                     false_positive_records.append(record)
         
